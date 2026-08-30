@@ -3,24 +3,31 @@
 // ============================================
 
 // ============================================
-// HOME REFRESH — ALWAYS RETURN TO TOP
+// HOME — CLEAN URL / SCROLL RESOLUTION
 // ============================================
-// A reload with a hash in the URL (e.g. index.html#contato) must land at the
-// top of the page with a clean URL. A normal navigation/click that arrives
-// with a hash (menu clicks, links from other pages) must still scroll to
-// that section — so this only acts when the navigation type is "reload".
+// Home lives at "/". A reload must always land at the top with a clean URL
+// (no hash, no /index.html). A normal arrival that carries a hash — a link
+// clicked from another page (e.g. /quem-somos/ -> /#como-funciona) or a
+// hash typed/bookmarked directly — must still land on that section, but the
+// hash is stripped from the address bar right after scrolling there. Only
+// an actual reload (Navigation Timing type "reload") skips the section
+// scroll and goes straight to the top.
 //
-// `html { scroll-behavior: smooth }` (style.css) applies to window.scrollTo
-// too, so a plain scrollTo(0,0) here would animate instead of snapping —
-// racing the browser's own (repeated, until load settles) native scroll to
-// the fragment and often losing. We flip scroll-behavior to 'auto' for the
-// duration of the correction, and re-assert across two animation frames plus
-// pageshow to win against late layout shifts (images/fonts) that make the
-// browser retry its own fragment scroll after our first call.
+// `html { scroll-behavior: smooth }` (style.css) applies to scrollTo/
+// scrollIntoView too, so a plain call here would animate instead of
+// snapping — racing the browser's own (repeated, until load settles)
+// native scroll to the fragment and often losing. We flip scroll-behavior
+// to 'auto' for the duration of each correction and re-assert across two
+// animation frames to win against late layout shifts (images/fonts).
+function normalizeHomePath(pathname) {
+    if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+    return pathname === '' ? '/' : pathname;
+}
+const IS_HOME = normalizeHomePath(window.location.pathname) === '/'
+    || /\/index\.html$/.test(window.location.pathname);
+
 (function () {
-    const path = window.location.pathname.split('/').pop() || 'index.html';
-    const isHome = path === 'index.html' || path === '';
-    if (!isHome) return;
+    if (!IS_HOME) return;
 
     if ('scrollRestoration' in history) {
         history.scrollRestoration = 'manual';
@@ -33,32 +40,48 @@
         return false;
     }
 
-    function forceScrollTop() {
+    function withInstantScroll(scrollFn) {
         const html = document.documentElement;
         const previousInlineBehavior = html.style.scrollBehavior;
         html.style.scrollBehavior = 'auto';
-        window.scrollTo(0, 0);
+        scrollFn();
         requestAnimationFrame(() => {
-            window.scrollTo(0, 0);
+            scrollFn();
             requestAnimationFrame(() => {
-                window.scrollTo(0, 0);
+                scrollFn();
                 html.style.scrollBehavior = previousInlineBehavior;
             });
         });
     }
 
-    function cleanReloadHash() {
+    function stripHash() {
         if (window.location.hash) {
             history.replaceState(null, '', window.location.pathname + window.location.search);
         }
-        forceScrollTop();
+    }
+
+    function goToTop() {
+        stripHash();
+        withInstantScroll(() => window.scrollTo(0, 0));
+    }
+
+    function goToSection(target) {
+        withInstantScroll(() => target.scrollIntoView({ block: 'start' }));
+        stripHash();
     }
 
     const reloaded = isReloadNavigation();
-    if (reloaded) cleanReloadHash();
+
+    if (reloaded) {
+        goToTop();
+    } else if (window.location.hash) {
+        const target = document.getElementById(window.location.hash.slice(1));
+        if (target) goToSection(target);
+        else stripHash();
+    }
 
     window.addEventListener('pageshow', function () {
-        if (reloaded) cleanReloadHash();
+        if (reloaded) goToTop();
     });
 })();
 
@@ -102,10 +125,10 @@ const navMobile = document.getElementById('navMobile');
 const mobileLinks = document.querySelectorAll('.nav-list-mobile a');
 
 // Highlight the current page in the shared navigation.
-const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+const currentPath = normalizeHomePath(window.location.pathname);
 document.querySelectorAll('.nav-list a, .nav-list-mobile a').forEach(link => {
     const linkUrl = new URL(link.href, window.location.href);
-    if (linkUrl.pathname.split('/').pop() === currentPage && !linkUrl.hash) {
+    if (normalizeHomePath(linkUrl.pathname) === currentPath && !linkUrl.hash) {
         link.setAttribute('aria-current', 'page');
     }
 });
@@ -141,6 +164,39 @@ document.addEventListener('click', function (event) {
         setMobileMenu(false);
     }
 });
+
+// ============================================
+// HOME — IN-PAGE SECTION LINKS WITHOUT A VISIBLE HASH
+// ============================================
+// "Como Funciona", "Contemplados" and "Contato" (desktop nav, mobile nav,
+// footer, hero CTA) all point at href="#id" so the markup keeps working
+// with no JS. On the Home page we intercept those clicks, scroll to the
+// target ourselves and never touch the URL — so a click never adds
+// #como-funciona/#conquistas/#contato to the address bar.
+if (IS_HOME) {
+    const sectionLinkReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    document.querySelectorAll('a[href^="#"]').forEach(link => {
+        const id = link.getAttribute('href').slice(1);
+        const target = id ? document.getElementById(id) : null;
+        if (!target) return;
+
+        link.addEventListener('click', function (event) {
+            event.preventDefault();
+
+            const scrollToTarget = () => {
+                target.scrollIntoView({ behavior: sectionLinkReducedMotion ? 'auto' : 'smooth', block: 'start' });
+            };
+
+            if (navMobile && navMobile.classList.contains('show')) {
+                setMobileMenu(false);
+                requestAnimationFrame(scrollToTarget);
+            } else {
+                scrollToTarget();
+            }
+        });
+    });
+}
 
 // ============================================
 // CREDIBILITY STRIP — REVEAL ON SCROLL
@@ -510,7 +566,7 @@ const contempladoCases = {
         type: 'Consórcio Imobiliário',
         story: 'Lucas e Amanda estavam há alguns anos pensando em sair do aluguel, mas sempre acabavam adiando a decisão por causa de outras prioridades.\n\nDepois de começarem a organizar melhor as finanças e entenderem as possibilidades de planejamento para aquisição de um imóvel, decidiram transformar aquela vontade em um projeto de verdade.\n\nO objetivo era encontrar uma casa onde pudessem ter mais espaço, receber a família e construir uma nova fase juntos.',
         quote: 'A gente falava em ter nossa casa fazia tempo, mas parecia uma coisa muito distante. Quando começamos a colocar tudo no papel e entender melhor como poderíamos nos organizar, ficou muito mais claro.',
-        image: 'images/historia-imoveis.webp',
+        image: '/images/historia-imoveis.webp',
         imageAlt: 'Casal recebendo as chaves de um imóvel',
         imagePosition: 'center',
         simulation: 'imoveis'
@@ -524,7 +580,7 @@ const contempladoCases = {
         type: 'Consórcio Veicular',
         story: 'Rafael já estava com o mesmo carro havia bastante tempo e queria trocar por um veículo maior e mais confortável para usar no dia a dia e nas viagens com a família.\n\nEm vez de tomar uma decisão no impulso, começou a planejar a troca com antecedência.\n\nA ideia era conseguir fazer a mudança com mais organização e escolher o veículo que realmente atendesse o que ele precisava.',
         quote: 'Eu queria trocar de carro, mas não queria fazer isso correndo e depois me arrepender. Preferi me organizar, pesquisar bastante e esperar o momento em que a troca realmente fizesse sentido pra mim.',
-        image: 'images/historia-veiculo.webp',
+        image: '/images/historia-veiculo.webp',
         imageAlt: 'Entrega das chaves de um veículo',
         imagePosition: 'center',
         simulation: 'veiculos'
@@ -538,7 +594,7 @@ const contempladoCases = {
         type: 'Consórcio para Pesados',
         story: 'Carlos trabalha com transporte e começou a perceber que depender apenas do caminhão que já possuía estava limitando a quantidade de serviços que conseguia atender.\n\nA compra de outro veículo passou a fazer parte dos planos de crescimento da operação.\n\nDepois de analisar as possibilidades, decidiu se organizar para ampliar a frota de forma planejada, sem transformar a expansão em uma decisão precipitada.',
         quote: 'Chegou uma hora em que eu estava recusando serviço porque faltava caminhão. Aí percebi que precisava pensar no próximo passo com calma. Não dava pra simplesmente comprar qualquer coisa e torcer pra dar certo.',
-        image: 'images/historia-pesado.webp',
+        image: '/images/historia-pesado.webp',
         imageAlt: 'Motorista com as chaves de um caminhão',
         imagePosition: 'center 38%',
         simulation: 'pesados'
@@ -552,7 +608,7 @@ const contempladoCases = {
         type: 'Consórcio Agrícola',
         story: 'João Carlos trabalha no campo com a família e queria modernizar parte da operação para ganhar mais agilidade durante os períodos de maior movimento.\n\nA troca do equipamento antigo por uma máquina mais moderna já era discutida havia algum tempo.\n\nCom planejamento, a família começou a tratar a aquisição como investimento de longo prazo na produtividade da propriedade.',
         quote: 'No campo tudo tem hora certa. Máquina é investimento alto, então não dá pra decidir de um dia pro outro. A gente queria melhorar a produção, mas sem fazer uma loucura.',
-        image: 'images/historia-agro.webp',
+        image: '/images/historia-agro.webp',
         imageAlt: 'Produtor ao lado de uma máquina agrícola',
         imagePosition: 'center 68%',
         simulation: 'agro'
@@ -592,7 +648,7 @@ if (contempladoModal && contempladoTriggers.length) {
         modalType.textContent = data.type;
         modalStory.textContent = data.story;
         modalQuote.textContent = data.quote;
-        modalCta.href = `simulacao.html?categoria=${data.simulation}`;
+        modalCta.href = `/simulacao/?categoria=${data.simulation}`;
     }
 
     function openContempladoModal(trigger) {
