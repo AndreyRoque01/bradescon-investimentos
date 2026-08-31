@@ -326,7 +326,7 @@ if (partnersAnimated.length && 'IntersectionObserver' in window) {
             dot.type = 'button';
             dot.className = 'partners-dot';
             dot.setAttribute('role', 'tab');
-            dot.setAttribute('aria-label', 'Ir para o parceiro ' + (i + 1));
+            dot.setAttribute('aria-label', 'Ir para a administradora ' + (i + 1));
             dot.addEventListener('click', () => goToIndex(i));
             dotsWrap.appendChild(dot);
         }
@@ -876,7 +876,7 @@ if (simulationForm) {
         event.preventDefault();
         const data = new FormData(simulationForm);
         const message = `Olá, gostaria de solicitar uma simulação pela Bradescon.\n\nCategoria: ${categoryLabels[data.get('categoria')]}\nCrédito desejado: ${data.get('credito')}\nNome: ${data.get('nome')}\nWhatsApp: ${data.get('whatsapp')}\nE-mail: ${data.get('email')}\nCidade/UF: ${data.get('cidade') || 'Não informado'}`;
-        window.location.href = `https://wa.me/5551996499906?text=${encodeURIComponent(message)}`;
+        window.location.href = `https://wa.me/555180886484?text=${encodeURIComponent(message)}`;
     });
 }
 
@@ -885,5 +885,6 @@ if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     });
 }
+
 
 
